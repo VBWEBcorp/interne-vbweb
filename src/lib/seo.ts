@@ -1,18 +1,18 @@
 export const siteConfig = {
-  name: 'Nom Entreprise',
-  url: 'https://www.example.com',
+  name: 'VBWEB',
+  url: 'https://www.vbweb.fr',
   locale: 'fr_FR',
   description:
-    'Votre entreprise — description courte et percutante de votre activité. Adaptez cette ligne à votre domaine.',
-  ogImage: 'https://www.example.com/og.png',
-  twitterHandle: '@votrecompte',
+    'Espace interne VBWEB — gestion des contrats, clients et prestations.',
+  ogImage: 'https://www.vbweb.fr/og.png',
+  twitterHandle: '@vbweb',
   themeColor: '#6d28d9',
-  phone: '+33 1 23 45 67 89',
-  email: 'contact@example.com',
+  phone: '+33 6 00 00 00 00',
+  email: 'contact@vbweb.fr',
   address: {
-    street: '12 Rue Exemple',
-    city: 'Paris',
-    postalCode: '75001',
+    street: 'Rennes',
+    city: 'Rennes',
+    postalCode: '35000',
     country: 'FR',
   },
 } as const
