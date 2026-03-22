@@ -53,7 +53,7 @@ const emptyExpense: Omit<Expense, 'id'> = {
 
 export function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([])
-  const [categories, setCategories] = useState<string[]>(defaultCategories)
+  const [categories] = useState<string[]>(defaultCategories)
   const [showAdd, setShowAdd] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [form, setForm] = useState(emptyExpense)
