@@ -1,203 +1,201 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { CheckCircle2, Circle, Plus, Sparkles, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { CheckCircle2, Circle, ListTodo, Plus, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
 
+import { type Todo, todosApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
-type Todo = {
-  id: string
-  text: string
-  done: boolean
-  createdAt: number
-}
-
-let nextId = 0
-function uid() {
-  return String(++nextId)
-}
-
-type Filter = 'all' | 'active' | 'done'
+type Priority = Todo['priority']
 
 export function TodosPage() {
   const [todos, setTodos] = useState<Todo[]>([])
   const [input, setInput] = useState('')
-  const [filter, setFilter] = useState<Filter>('all')
+  const [inputPriority, setInputPriority] = useState<Priority>('normal')
 
-  function add() {
+  useEffect(() => { todosApi.list().then(setTodos).catch(console.error) }, [])
+
+  async function add() {
     const text = input.trim()
     if (!text) return
-    setTodos((prev) => [{ id: uid(), text, done: false, createdAt: Date.now() }, ...prev])
+    const created = await todosApi.create({ text, done: false, priority: inputPriority })
+    setTodos((prev) => [created, ...prev])
     setInput('')
   }
 
-  function toggle(id: string) {
-    setTodos((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, done: !t.done } : t))
-    )
+  async function toggle(id: string) {
+    const todo = todos.find((t) => t.id === id)
+    if (!todo) return
+    const updated = await todosApi.update(id, { text: todo.text, done: !todo.done, priority: todo.priority })
+    setTodos((prev) => prev.map((t) => (t.id === id ? updated : t)))
   }
 
-  function remove(id: string) {
+  async function remove(id: string) {
+    await todosApi.remove(id)
     setTodos((prev) => prev.filter((t) => t.id !== id))
   }
 
-  function clearDone() {
-    setTodos((prev) => prev.filter((t) => !t.done))
-  }
+  const normalTodos = useMemo(() => todos.filter((t) => t.priority === 'normal'), [todos])
+  const prioritaireTodos = useMemo(() => todos.filter((t) => t.priority === 'prioritaire'), [todos])
 
-  const filtered = useMemo(() => {
-    if (filter === 'active') return todos.filter((t) => !t.done)
-    if (filter === 'done') return todos.filter((t) => t.done)
-    return todos
-  }, [todos, filter])
-
-  const activeCount = todos.filter((t) => !t.done).length
-  const doneCount = todos.filter((t) => t.done).length
-
-  const filters: { key: Filter; label: string; count: number }[] = [
-    { key: 'all', label: 'Toutes', count: todos.length },
-    { key: 'active', label: 'En cours', count: activeCount },
-    { key: 'done', label: 'Faites', count: doneCount },
-  ]
+  const normalActive = normalTodos.filter((t) => !t.done).length
+  const prioritaireActive = prioritaireTodos.filter((t) => !t.done).length
 
   return (
-    <div className="mx-auto max-w-xl px-4 py-6 sm:py-10">
-      {/* Hero header */}
-      <div className="mb-8">
-        <div className="mb-1 flex items-center gap-2">
-          <div className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5">
-            <Sparkles className="size-5 text-primary" />
-          </div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-            Tâches
-          </h1>
+    <div className="mx-auto max-w-3xl px-3 py-4 sm:px-4 sm:py-10">
+      {/* Header */}
+      <div className="mb-4 flex items-center gap-2 sm:mb-6">
+        <div className="hidden sm:flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5">
+          <ListTodo className="size-5 text-primary" />
         </div>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {activeCount === 0
-            ? 'Rien à faire — profite !'
-            : `${activeCount} tâche${activeCount > 1 ? 's' : ''} en cours`}
-        </p>
-      </div>
-
-      {/* Input — premium pill style */}
-      <form
-        onSubmit={(e) => { e.preventDefault(); add() }}
-        className="group relative mb-8"
-      >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ajouter une tâche..."
-          className="h-12 w-full rounded-2xl border border-border/60 bg-card pl-5 pr-14 text-sm text-foreground shadow-[var(--shadow-sm)] outline-none transition-all placeholder:text-muted-foreground/50 focus:border-primary/40 focus:shadow-[var(--shadow-md)] focus:ring-2 focus:ring-primary/10 sm:h-14 sm:pl-6 sm:text-base"
-        />
-        <button
-          type="submit"
-          disabled={!input.trim()}
-          className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm transition-all hover:bg-primary/90 active:scale-90 disabled:opacity-30 disabled:shadow-none sm:size-10 sm:rounded-xl"
-        >
-          <Plus className="size-4 sm:size-5" />
-        </button>
-      </form>
-
-      {/* Filter pills */}
-      <div className="mb-5 flex items-center justify-between">
-        <div className="flex gap-1.5">
-          {filters.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all',
-                filter === f.key
-                  ? 'bg-primary/10 text-primary shadow-sm ring-1 ring-primary/20'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-              )}
-            >
-              {f.label}
-              <span className={cn(
-                'tabular-nums text-[10px]',
-                filter === f.key ? 'text-primary/70' : 'text-muted-foreground/60'
-              )}>
-                {f.count}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {doneCount > 0 && (
-          <button
-            onClick={clearDone}
-            className="rounded-full px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-          >
-            Vider
-          </button>
+        <h1 className="font-display text-xl font-bold tracking-tight text-foreground sm:text-3xl">
+          To-do list
+        </h1>
+        {(normalActive + prioritaireActive) > 0 && (
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-primary sm:text-xs">
+            {normalActive + prioritaireActive}
+          </span>
         )}
       </div>
 
-      {/* List */}
-      <div className="space-y-2">
+      {/* Input */}
+      <form onSubmit={(e) => { e.preventDefault(); add() }} className="mb-4 flex gap-1.5 sm:mb-6 sm:gap-2">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Nouvelle tâche..."
+          className="h-9 min-w-0 flex-1 rounded-lg border border-border/60 bg-card px-3 text-xs text-foreground shadow-[var(--shadow-xs)] outline-none transition-all placeholder:text-muted-foreground/50 focus:border-primary/40 focus:ring-2 focus:ring-primary/10 sm:h-11 sm:rounded-xl sm:px-4 sm:text-sm"
+        />
+        {/* Priority toggle */}
+        <button
+          type="button"
+          onClick={() => setInputPriority((p) => p === 'normal' ? 'prioritaire' : 'normal')}
+          className={cn(
+            'shrink-0 rounded-lg px-2.5 text-[10px] font-semibold uppercase tracking-wide transition-all sm:rounded-xl sm:px-3 sm:text-[11px]',
+            inputPriority === 'prioritaire'
+              ? 'bg-red-500/10 text-red-600 ring-1 ring-red-500/20 dark:text-red-400'
+              : 'bg-muted text-muted-foreground'
+          )}
+        >
+          {inputPriority === 'prioritaire' ? 'P' : 'N'}
+        </button>
+        <button
+          type="submit"
+          disabled={!input.trim()}
+          className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-all hover:bg-primary/90 active:scale-90 disabled:opacity-30 sm:size-11 sm:rounded-xl"
+        >
+          <Plus className="size-4" />
+        </button>
+      </form>
+
+      {/* Two columns side by side */}
+      <div className="grid grid-cols-2 gap-2 sm:gap-4">
+        {/* Normal column */}
+        <Column
+          title="Normal"
+          count={normalActive}
+          items={normalTodos}
+          color="primary"
+          onToggle={toggle}
+          onRemove={remove}
+        />
+
+        {/* Prioritaire column */}
+        <Column
+          title="Prioritaire"
+          count={prioritaireActive}
+          items={prioritaireTodos}
+          color="red"
+          onToggle={toggle}
+          onRemove={remove}
+        />
+      </div>
+    </div>
+  )
+}
+
+function Column({
+  title,
+  count,
+  items,
+  color,
+  onToggle,
+  onRemove,
+}: {
+  title: string
+  count: number
+  items: Todo[]
+  color: 'primary' | 'red'
+  onToggle: (id: string) => void
+  onRemove: (id: string) => void
+}) {
+  const headerColor = color === 'red'
+    ? 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20'
+    : 'bg-primary/10 text-primary border-primary/20'
+
+  return (
+    <div className="flex flex-col">
+      {/* Column header */}
+      <div className={cn(
+        'mb-2 flex items-center justify-between rounded-lg border px-2.5 py-1.5 sm:rounded-xl sm:px-3 sm:py-2',
+        headerColor
+      )}>
+        <span className="text-[11px] font-semibold uppercase tracking-wide sm:text-xs">{title}</span>
+        <span className="text-[10px] font-bold tabular-nums sm:text-[11px]">{count}</span>
+      </div>
+
+      {/* Items */}
+      <div className="overflow-hidden rounded-lg border border-border/50 bg-card sm:rounded-xl">
         <AnimatePresence initial={false}>
-          {filtered.map((todo) => (
+          {items.map((todo, i) => (
             <motion.div
               key={todo.id}
-              initial={{ opacity: 0, y: -8, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95, height: 0, marginBottom: 0 }}
-              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              layout
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.15 }}
+              className={cn(i > 0 && 'border-t border-border/30')}
             >
-              <div
-                className={cn(
-                  'group flex items-center gap-3.5 rounded-2xl border border-border/50 bg-card px-4 py-3.5 shadow-[var(--shadow-xs)] transition-all sm:px-5 sm:py-4',
-                  todo.done ? 'bg-muted/20' : 'hover:shadow-[var(--shadow-sm)] hover:border-border'
-                )}
-              >
+              <div className={cn(
+                'group flex items-start gap-1.5 px-2 py-2 sm:gap-2 sm:px-3 sm:py-2.5',
+                todo.done && 'opacity-40'
+              )}>
                 <button
-                  onClick={() => toggle(todo.id)}
-                  className="shrink-0 transition-transform active:scale-90"
-                  aria-label={todo.done ? 'Marquer non fait' : 'Marquer fait'}
+                  onClick={() => onToggle(todo.id)}
+                  className="mt-0.5 shrink-0 transition-transform active:scale-90"
                 >
                   {todo.done ? (
-                    <CheckCircle2 className="size-6 text-emerald-500" strokeWidth={2} />
+                    <CheckCircle2 className="size-4 text-emerald-500 sm:size-5" strokeWidth={2} />
                   ) : (
-                    <Circle className="size-6 text-border hover:text-primary/60" strokeWidth={1.5} />
+                    <Circle className={cn(
+                      'size-4 sm:size-5',
+                      color === 'red' ? 'text-red-300 hover:text-red-500' : 'text-border hover:text-primary/60'
+                    )} strokeWidth={1.5} />
                   )}
                 </button>
 
-                <span
-                  className={cn(
-                    'min-w-0 flex-1 text-[15px] leading-relaxed break-words',
-                    todo.done
-                      ? 'text-muted-foreground/50 line-through'
-                      : 'text-foreground'
-                  )}
-                >
+                <span className={cn(
+                  'min-w-0 flex-1 break-words text-[11px] leading-snug sm:text-[13px]',
+                  todo.done ? 'text-muted-foreground/50 line-through' : 'text-foreground'
+                )}>
                   {todo.text}
                 </span>
 
                 <button
-                  onClick={() => remove(todo.id)}
-                  className="shrink-0 rounded-xl p-2 text-muted-foreground/30 transition-all hover:bg-destructive/10 hover:text-destructive active:scale-90 sm:opacity-0 sm:group-hover:opacity-100"
-                  aria-label="Supprimer"
+                  onClick={() => onRemove(todo.id)}
+                  className="mt-0.5 shrink-0 rounded p-1 text-muted-foreground/20 transition-all active:bg-destructive/10 active:text-destructive sm:opacity-0 sm:group-hover:opacity-100"
                 >
-                  <Trash2 className="size-4" />
+                  <Trash2 className="size-3" />
                 </button>
               </div>
             </motion.div>
           ))}
         </AnimatePresence>
 
-        {filtered.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex flex-col items-center gap-3 py-16 text-center"
-          >
-            <div className="flex size-14 items-center justify-center rounded-3xl bg-muted/50">
-              <CheckCircle2 className="size-7 text-muted-foreground/40" />
-            </div>
-            <p className="text-sm text-muted-foreground/60">
-              {filter === 'done' ? 'Aucune tâche terminée.' : filter === 'active' ? 'Tout est fait !' : 'Ajoutez votre première tâche.'}
-            </p>
-          </motion.div>
+        {items.length === 0 && (
+          <p className="py-8 text-center text-[10px] text-muted-foreground/40 sm:py-12 sm:text-xs">
+            Vide
+          </p>
         )}
       </div>
     </div>

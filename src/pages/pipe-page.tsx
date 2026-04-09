@@ -1,106 +1,87 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { Archive, ArchiveRestore, Plus, Target, Trash2 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
+import { type Lead, leadsApi } from '@/lib/api'
 import { cn } from '@/lib/utils'
-
-type Lead = { id: string; nom: string; note: string; archived: boolean }
-
-let nid = 50
-function uid() { return String(++nid) }
-
-const initial: Lead[] = [
-  { id: '1', nom: 'Solatrack', note: 'OK mais attendre encore', archived: false },
-  { id: '2', nom: 'Céramique Gaëlle', note: 'ça sent le KO', archived: false },
-  { id: '3', nom: 'Milla x 2', note: '', archived: false },
-  { id: '4', nom: 'Édouard x 1', note: '', archived: false },
-  { id: '5', nom: 'Saint Martin x 1', note: '', archived: false },
-  { id: '6', nom: 'Aurore', note: '', archived: false },
-  { id: '7', nom: 'Cousin Zidane', note: '', archived: false },
-  { id: '8', nom: 'Nathan e-commerce', note: '', archived: false },
-  { id: '9', nom: 'Melissa', note: 'OK', archived: false },
-  { id: '10', nom: 'Bisous Tatoo', note: '', archived: false },
-  { id: '11', nom: 'Roazon Bière', note: '', archived: false },
-  { id: '12', nom: 'Salomé Carte', note: '', archived: false },
-  { id: '13', nom: 'Myriam SEO', note: '', archived: false },
-  { id: '14', nom: 'Matineh Food', note: 'OK', archived: false },
-  { id: '15', nom: 'Benoît Local', note: 'OK', archived: false },
-  { id: '16', nom: 'Actimaine Refonte', note: 'OK', archived: false },
-  { id: '17', nom: 'Hill Carrelage', note: 'ça sent le KO', archived: false },
-  { id: '18', nom: 'Pote Evan', note: '', archived: false },
-  { id: '19', nom: 'Massage', note: 'EN ATTENTE Octobre', archived: false },
-  { id: '20', nom: 'Ibrahim', note: 'PAS DE REP', archived: false },
-  { id: '21', nom: 'François Ortho', note: 'OK', archived: false },
-  { id: '22', nom: 'Benoît Nouvel Engagement', note: 'OK', archived: false },
-]
 
 type Tab = 'active' | 'archived'
 
 export function PipePage() {
-  const [leads, setLeads] = useState<Lead[]>(initial)
+  const [leads, setLeads] = useState<Lead[]>([])
   const [input, setInput] = useState('')
   const [tab, setTab] = useState<Tab>('active')
   const [editingNote, setEditingNote] = useState<string | null>(null)
+
+  useEffect(() => { leadsApi.list().then(setLeads).catch(console.error) }, [])
 
   const activeLeads = useMemo(() => leads.filter((l) => !l.archived), [leads])
   const archivedLeads = useMemo(() => leads.filter((l) => l.archived), [leads])
   const list = tab === 'active' ? activeLeads : archivedLeads
 
-  function add() {
+  async function add() {
     const nom = input.trim()
     if (!nom) return
-    setLeads((prev) => [{ id: uid(), nom, note: '', archived: false }, ...prev])
+    const created = await leadsApi.create({ nom, note: '', archived: false })
+    setLeads((prev) => [created, ...prev])
     setInput('')
   }
 
-  function toggleArchive(id: string) {
-    setLeads((prev) => prev.map((l) => l.id === id ? { ...l, archived: !l.archived } : l))
+  async function toggleArchive(id: string) {
+    const lead = leads.find((l) => l.id === id)
+    if (!lead) return
+    const updated = await leadsApi.update(id, { nom: lead.nom, note: lead.note, archived: !lead.archived })
+    setLeads((prev) => prev.map((l) => l.id === id ? updated : l))
   }
 
-  function setNote(id: string, note: string) {
+  async function setNote(id: string, note: string) {
+    const lead = leads.find((l) => l.id === id)
+    if (!lead) return
     setLeads((prev) => prev.map((l) => l.id === id ? { ...l, note } : l))
+    await leadsApi.update(id, { nom: lead.nom, note, archived: lead.archived })
   }
 
-  function remove(id: string) {
+  async function remove(id: string) {
+    await leadsApi.remove(id)
     setLeads((prev) => prev.filter((l) => l.id !== id))
   }
 
   return (
-    <div className="mx-auto max-w-xl px-4 py-6 sm:py-10">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="mb-1 flex items-center gap-2">
-          <div className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5">
+    <div className="mx-auto max-w-xl px-3 py-4 sm:px-4 sm:py-10">
+      {/* Header compact */}
+      <div className="mb-4 flex items-center justify-between sm:mb-8">
+        <div className="flex items-center gap-2">
+          <div className="hidden sm:flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5">
             <Target className="size-5 text-primary" />
           </div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+          <h1 className="font-display text-xl font-bold tracking-tight text-foreground sm:text-3xl">
             Pipe
           </h1>
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-primary sm:text-xs">
+            {activeLeads.length}
+          </span>
         </div>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {activeLeads.length} piste{activeLeads.length > 1 ? 's' : ''} en cours
-        </p>
       </div>
 
-      {/* Input */}
-      <form onSubmit={(e) => { e.preventDefault(); add() }} className="group relative mb-8">
+      {/* Input compact */}
+      <form onSubmit={(e) => { e.preventDefault(); add() }} className="group relative mb-4 sm:mb-8">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Nouvelle piste..."
-          className="h-12 w-full rounded-2xl border border-border/60 bg-card pl-5 pr-14 text-sm text-foreground shadow-[var(--shadow-sm)] outline-none transition-all placeholder:text-muted-foreground/50 focus:border-primary/40 focus:shadow-[var(--shadow-md)] focus:ring-2 focus:ring-primary/10 sm:h-14 sm:pl-6 sm:text-base"
+          className="h-10 w-full rounded-xl border border-border/60 bg-card pl-4 pr-12 text-xs text-foreground shadow-[var(--shadow-xs)] outline-none transition-all placeholder:text-muted-foreground/50 focus:border-primary/40 focus:ring-2 focus:ring-primary/10 sm:h-12 sm:rounded-2xl sm:pl-5 sm:pr-14 sm:text-sm"
         />
         <button
           type="submit"
           disabled={!input.trim()}
-          className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm transition-all hover:bg-primary/90 active:scale-90 disabled:opacity-30 sm:size-10"
+          className="absolute right-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm transition-all hover:bg-primary/90 active:scale-90 disabled:opacity-30 sm:right-2 sm:size-8 sm:rounded-xl"
         >
-          <Plus className="size-4 sm:size-5" />
+          <Plus className="size-3.5 sm:size-4" />
         </button>
       </form>
 
       {/* Tabs */}
-      <div className="mb-5 flex gap-1.5">
+      <div className="mb-3 flex gap-1 sm:mb-5">
         {([
           { key: 'active' as Tab, label: 'En cours', count: activeLeads.length },
           { key: 'archived' as Tab, label: 'Archivées', count: archivedLeads.length },
@@ -109,7 +90,7 @@ export function PipePage() {
             key={t.key}
             onClick={() => setTab(t.key)}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all',
+              'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-3.5 sm:py-1.5 sm:text-xs',
               tab === t.key
                 ? 'bg-primary/10 text-primary shadow-sm ring-1 ring-primary/20'
                 : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -117,7 +98,7 @@ export function PipePage() {
           >
             {t.label}
             <span className={cn(
-              'tabular-nums text-[10px]',
+              'tabular-nums text-[9px] sm:text-[10px]',
               tab === t.key ? 'text-primary/70' : 'text-muted-foreground/60'
             )}>
               {t.count}
@@ -126,93 +107,115 @@ export function PipePage() {
         ))}
       </div>
 
-      {/* List */}
-      <div className="space-y-2">
+      {/* Dense list */}
+      <div className="overflow-hidden rounded-xl border border-border/50 bg-card sm:rounded-2xl">
         <AnimatePresence initial={false}>
-          {list.map((lead) => (
+          {list.map((lead, i) => (
             <motion.div
               key={lead.id}
               layout
-              initial={{ opacity: 0, y: -8, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95, height: 0, marginBottom: 0 }}
-              transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.15 }}
+              className={cn(i > 0 && 'border-t border-border/30')}
             >
               <div className={cn(
-                'group rounded-2xl border border-border/50 bg-card px-4 py-3.5 shadow-[var(--shadow-xs)] transition-all sm:px-5 sm:py-4',
-                lead.archived ? 'opacity-50' : 'hover:shadow-[var(--shadow-sm)] hover:border-border'
+                'group px-3 py-2 sm:px-4 sm:py-3',
+                lead.archived && 'opacity-40'
               )}>
-                <div className="flex items-center gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-muted to-muted/50 text-xs font-bold text-muted-foreground">
-                    {lead.nom.charAt(0).toUpperCase()}
-                  </div>
-                  <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-foreground">{lead.nom}</span>
+                {/* Row: name + note inline + actions */}
+                <div className="flex items-center gap-2">
+                  {/* Name */}
+                  <span className="min-w-0 shrink truncate text-[13px] font-semibold text-foreground sm:text-[15px]">
+                    {lead.nom}
+                  </span>
 
-                  <div className="flex items-center gap-0.5">
+                  {/* Note badge inline (if not editing) */}
+                  {editingNote !== lead.id && lead.note && (
+                    <button
+                      onClick={() => setEditingNote(lead.id)}
+                      className="hidden min-w-0 shrink-[2] sm:block"
+                    >
+                      <span className="inline-block max-w-[140px] truncate rounded bg-muted/50 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                        {lead.note}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* Spacer */}
+                  <span className="flex-1" />
+
+                  {/* Actions — always visible on mobile */}
+                  <div className="flex shrink-0 items-center gap-0.5">
+                    {editingNote !== lead.id && !lead.note && (
+                      <button
+                        onClick={() => setEditingNote(lead.id)}
+                        className="rounded-lg px-1.5 py-1 text-[10px] text-muted-foreground/30 transition-colors active:bg-muted sm:hover:text-muted-foreground/60"
+                      >
+                        +note
+                      </button>
+                    )}
                     <button
                       onClick={() => toggleArchive(lead.id)}
                       className={cn(
-                        'shrink-0 rounded-xl p-2 transition-all active:scale-90',
+                        'rounded-lg p-1.5 transition-all active:scale-90',
                         lead.archived
-                          ? 'text-primary hover:bg-primary/10'
-                          : 'text-muted-foreground/40 hover:bg-muted hover:text-muted-foreground'
+                          ? 'text-primary active:bg-primary/10'
+                          : 'text-muted-foreground/30 active:bg-muted'
                       )}
                       aria-label={lead.archived ? 'Désarchiver' : 'Archiver'}
                     >
-                      {lead.archived ? <ArchiveRestore className="size-4" /> : <Archive className="size-4" />}
+                      {lead.archived ? <ArchiveRestore className="size-3.5" /> : <Archive className="size-3.5" />}
                     </button>
                     <button
                       onClick={() => remove(lead.id)}
-                      className="shrink-0 rounded-xl p-2 text-muted-foreground/30 transition-all hover:bg-destructive/10 hover:text-destructive active:scale-90 sm:opacity-0 sm:group-hover:opacity-100"
+                      className="rounded-lg p-1.5 text-muted-foreground/20 transition-all active:bg-destructive/10 active:text-destructive sm:opacity-0 sm:group-hover:opacity-100"
                       aria-label="Supprimer"
                     >
-                      <Trash2 className="size-3.5" />
+                      <Trash2 className="size-3" />
                     </button>
                   </div>
                 </div>
 
-                {editingNote === lead.id ? (
+                {/* Mobile note below name (if has note, not editing) */}
+                {editingNote !== lead.id && lead.note && (
+                  <button
+                    onClick={() => setEditingNote(lead.id)}
+                    className="mt-0.5 block sm:hidden"
+                  >
+                    <span className="text-[10px] text-muted-foreground/70">{lead.note}</span>
+                  </button>
+                )}
+
+                {/* Inline edit */}
+                {editingNote === lead.id && (
                   <input
                     autoFocus
                     value={lead.note}
                     onChange={(e) => setNote(lead.id, e.target.value)}
                     onBlur={() => setEditingNote(null)}
                     onKeyDown={(e) => { if (e.key === 'Enter') setEditingNote(null) }}
-                    placeholder="Ajouter une note..."
-                    className="mt-2.5 w-full rounded-lg border-0 bg-muted/40 px-3 py-2 text-xs text-foreground outline-none ring-1 ring-primary/20 placeholder:text-muted-foreground/40"
+                    placeholder="Note..."
+                    className="mt-1 w-full rounded-lg border-0 bg-muted/30 px-2 py-1.5 text-[11px] text-foreground outline-none ring-1 ring-primary/20 placeholder:text-muted-foreground/40 sm:text-xs"
                   />
-                ) : (
-                  <button
-                    onClick={() => setEditingNote(lead.id)}
-                    className="mt-2 block w-full text-left text-xs"
-                  >
-                    {lead.note ? (
-                      <span className="inline-flex rounded-lg bg-muted/40 px-2.5 py-1.5 text-muted-foreground">{lead.note}</span>
-                    ) : (
-                      <span className="text-muted-foreground/30 hover:text-muted-foreground/60">+ note</span>
-                    )}
-                  </button>
                 )}
               </div>
             </motion.div>
           ))}
         </AnimatePresence>
-
-        {list.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="flex flex-col items-center gap-3 py-16 text-center"
-          >
-            <div className="flex size-14 items-center justify-center rounded-3xl bg-muted/50">
-              <Target className="size-7 text-muted-foreground/40" />
-            </div>
-            <p className="text-sm text-muted-foreground/60">
-              {tab === 'archived' ? 'Aucune piste archivée.' : 'Aucune piste en cours.'}
-            </p>
-          </motion.div>
-        )}
       </div>
+
+      {list.length === 0 && (
+        <div className="flex flex-col items-center gap-3 py-16 text-center">
+          <div className="flex size-14 items-center justify-center rounded-3xl bg-muted/50">
+            <Target className="size-7 text-muted-foreground/40" />
+          </div>
+          <p className="text-sm text-muted-foreground/60">
+            {tab === 'archived' ? 'Aucune piste archivée.' : 'Aucune piste en cours.'}
+          </p>
+        </div>
+      )}
     </div>
   )
 }

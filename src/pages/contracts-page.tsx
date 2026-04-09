@@ -1,22 +1,21 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import {
-  ArrowUpRight,
+  AlertTriangle,
+  Bell,
   Calendar,
   ChevronDown,
   ChevronUp,
-  CircleDollarSign,
   FileText,
   Mail,
-  PauseCircle,
   Pencil,
   Plus,
   Search,
   Settings2,
   Trash2,
-  Users,
+  TrendingUp,
   X,
 } from 'lucide-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -26,11 +25,15 @@ import {
   type Contract,
   type ContractStatus,
   defaultPrestations,
-  generateId,
-  initialContracts,
   parseDateFR,
   statusOrder,
 } from '@/data/contracts'
+import {
+  createContract,
+  deleteContract as apiDeleteContract,
+  listContracts,
+  updateContract,
+} from '@/lib/contracts-api'
 import { cn } from '@/lib/utils'
 
 type SortKey = keyof Contract
@@ -66,8 +69,27 @@ function fmt(n: number) {
   return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+const THREE_MONTHS_MS = 1000 * 60 * 60 * 24 * 90
+
+function isExpiringSoon(c: Contract): boolean {
+  if (c.statut !== 'Actif') return false
+  const end = parseDateFR(c.dateFin)
+  if (!end) return false
+  const now = Date.now()
+  // Only warn if end date is in the future AND within 3 months
+  return end >= now && end - now <= THREE_MONTHS_MS
+}
+
+function daysLeft(dateFR: string): number {
+  const t = parseDateFR(dateFR)
+  if (!t) return 0
+  return Math.ceil((t - Date.now()) / (1000 * 60 * 60 * 24))
+}
+
 export function ContractsPage() {
-  const [contracts, setContracts] = useState<Contract[]>(initialContracts)
+  const [contracts, setContracts] = useState<Contract[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<ContractStatus | 'Tous'>('Tous')
   const [sortKey, setSortKey] = useState<SortKey | null>(null)
@@ -80,6 +102,29 @@ export function ContractsPage() {
   const [newPrestation, setNewPrestation] = useState('')
   const [showPrestations, setShowPrestations] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  const [showAlerts, setShowAlerts] = useState(false)
+  const [expandedMobile, setExpandedMobile] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    listContracts()
+      .then((data) => {
+        if (!cancelled) {
+          setContracts(data)
+          setError(null)
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -127,35 +172,51 @@ export function ContractsPage() {
   }, [contracts, search, statusFilter, sortKey, sortDir])
 
   const stats = useMemo(() => {
-    const actifs = contracts.filter((c) => c.statut === 'Actif')
-    const suspendus = contracts.filter((c) => c.statut === 'Suspendu')
-    const termines = contracts.filter((c) => c.statut === 'Terminé')
-
-    const htActifs = actifs.reduce((sum, c) => sum + c.montantHT, 0)
-    const htSuspendus = suspendus.reduce((sum, c) => sum + c.montantHT, 0)
-    const htTermines = termines.reduce((sum, c) => sum + c.montantHT, 0)
-
     return {
       total: contracts.length,
-      actifs: actifs.length,
-      suspendus: suspendus.length,
-      termines: termines.length,
-      htActifs,
-      ttcActifs: htActifs * 1.2,
-      htSuspendus,
-      htTermines,
+      actifs: contracts.filter((c) => c.statut === 'Actif').length,
+      suspendus: contracts.filter((c) => c.statut === 'Suspendu').length,
+      termines: contracts.filter((c) => c.statut === 'Terminé').length,
     }
   }, [contracts])
+
+  const monthlyRevenue = useMemo(
+    () => contracts.filter((c) => c.statut === 'Actif').reduce((s, c) => s + c.montantHT, 0),
+    [contracts],
+  )
+
+  const suspendedTotal = useMemo(
+    () => contracts.filter((c) => c.statut === 'Suspendu').reduce((s, c) => s + c.montantHT, 0),
+    [contracts],
+  )
+
+  const terminatedTotal = useMemo(
+    () => contracts.filter((c) => c.statut === 'Terminé').reduce((s, c) => s + c.montantHT, 0),
+    [contracts],
+  )
+
+  const expiringSoon = useMemo(
+    () =>
+      contracts
+        .filter(isExpiringSoon)
+        .sort((a, b) => parseDateFR(a.dateFin) - parseDateFR(b.dateFin)),
+    [contracts],
+  )
 
   const filteredTotal = useMemo(() => {
     return filtered.reduce((sum, c) => sum + c.montantHT, 0)
   }, [filtered])
 
-  function handleAdd() {
+  async function handleAdd() {
     if (!form.entreprise.trim()) return
-    setContracts((prev) => [{ ...form, id: generateId() }, ...prev])
-    setForm(emptyContract)
-    setShowAdd(false)
+    try {
+      const created = await createContract(form)
+      setContracts((prev) => [created, ...prev])
+      setForm(emptyContract)
+      setShowAdd(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   function openEdit(contract: Contract) {
@@ -164,13 +225,16 @@ export function ContractsPage() {
     setEditId(contract.id)
   }
 
-  function handleEdit() {
+  async function handleEdit() {
     if (!editId || !form.entreprise.trim()) return
-    setContracts((prev) =>
-      prev.map((c) => (c.id === editId ? { ...form, id: editId } : c))
-    )
-    setForm(emptyContract)
-    setEditId(null)
+    try {
+      const updated = await updateContract(editId, form)
+      setContracts((prev) => prev.map((c) => (c.id === editId ? updated : c)))
+      setForm(emptyContract)
+      setEditId(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   function closeEdit() {
@@ -178,9 +242,14 @@ export function ContractsPage() {
     setForm(emptyContract)
   }
 
-  function handleDelete(id: string) {
-    setContracts((prev) => prev.filter((c) => c.id !== id))
-    setDeleteId(null)
+  async function handleDelete(id: string) {
+    try {
+      await apiDeleteContract(id)
+      setContracts((prev) => prev.filter((c) => c.id !== id))
+      setDeleteId(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
   }
 
   function addPrestation() {
@@ -205,60 +274,147 @@ export function ContractsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:py-10 lg:px-8">
+    <div className="mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-10 lg:px-8">
 
       {/* Header */}
-      <div className="mb-8">
-        <div className="mb-1 flex items-center gap-2">
-          <div className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5">
+      <div className="mb-4 flex items-center justify-between gap-2 sm:mb-6">
+        <div className="flex items-center gap-2">
+          <div className="hidden sm:flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/20 to-primary/5">
             <FileText className="size-5 text-primary" />
           </div>
-          <h1 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+          <h1 className="font-display text-xl font-bold tracking-tight text-foreground sm:text-3xl">
             Contrats
           </h1>
-          <Badge variant="secondary" className="ml-1 tabular-nums">
+          <Badge variant="secondary" className="ml-1 tabular-nums text-[10px] sm:text-xs">
             {filtered.length}
           </Badge>
         </div>
-      </div>
 
-      {/* KPI cards */}
-      <div className="mb-8 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <KpiCard icon={Users} label="Total" value={String(stats.total)} color="from-primary/15 to-primary/5" iconColor="text-primary" />
-        <KpiCard icon={ArrowUpRight} label="Actifs" value={String(stats.actifs)} color="from-emerald-500/15 to-emerald-500/5" iconColor="text-emerald-500" valueColor="text-emerald-600 dark:text-emerald-400" />
-        <KpiCard icon={PauseCircle} label="Suspendus" value={String(stats.suspendus)} color="from-amber-500/15 to-amber-500/5" iconColor="text-amber-500" valueColor="text-amber-600 dark:text-amber-400" />
-        <KpiCard icon={CircleDollarSign} label="HT / mois" value={`${fmt(stats.htActifs)} €`} color="from-primary/15 to-primary/5" iconColor="text-primary" small />
-        <KpiCard icon={CircleDollarSign} label="TTC / mois" value={`${fmt(stats.ttcActifs)} €`} color="from-primary/15 to-primary/5" iconColor="text-primary" small />
-      </div>
+        {/* Notification bell */}
+        <div className="relative">
+          <button
+            onClick={() => setShowAlerts((v) => !v)}
+            className={cn(
+              'relative flex size-10 items-center justify-center rounded-2xl border transition-all',
+              expiringSoon.length > 0
+                ? 'border-amber-500/30 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 dark:text-amber-400'
+                : 'border-border/60 bg-card text-muted-foreground hover:bg-muted'
+            )}
+            aria-label="Alertes contrats"
+          >
+            <Bell className="size-4" />
+            {expiringSoon.length > 0 && (
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white shadow-sm">
+                {expiringSoon.length}
+              </span>
+            )}
+          </button>
 
-      {/* Distribution bar */}
-      <div className="mb-8">
-        <div className="flex h-2 overflow-hidden rounded-full bg-muted">
-          {stats.total > 0 && (
-            <>
-              <div className="bg-emerald-500 transition-all" style={{ width: `${(stats.actifs / stats.total) * 100}%` }} />
-              <div className="bg-amber-500 transition-all" style={{ width: `${(stats.suspendus / stats.total) * 100}%` }} />
-              <div className="bg-zinc-400 transition-all" style={{ width: `${(stats.termines / stats.total) * 100}%` }} />
-            </>
-          )}
+          <AnimatePresence>
+            {showAlerts && (
+              <>
+                <div className="fixed inset-0 z-30" onClick={() => setShowAlerts(false)} />
+                <motion.div
+                  initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute right-0 top-12 z-40 w-80 overflow-hidden rounded-2xl border border-border/60 bg-card shadow-xl"
+                >
+                  <div className="border-b border-border/50 bg-amber-500/5 px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="size-4 text-amber-500" />
+                      <p className="text-sm font-semibold text-foreground">
+                        Fins de contrat — 3 mois
+                      </p>
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {expiringSoon.length === 0
+                        ? 'Aucune alerte 🎉'
+                        : `${expiringSoon.length} contrat${expiringSoon.length > 1 ? 's' : ''} à renouveler ou remplacer`}
+                    </p>
+                  </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    {expiringSoon.length === 0 ? (
+                      <p className="px-4 py-6 text-center text-xs text-muted-foreground/60">
+                        Tout est tranquille pour l'instant.
+                      </p>
+                    ) : (
+                      expiringSoon.map((c) => {
+                        const days = daysLeft(c.dateFin)
+                        return (
+                          <div
+                            key={c.id}
+                            className="flex items-center justify-between gap-3 border-b border-border/30 px-4 py-3 last:border-b-0 hover:bg-muted/30"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-foreground">
+                                {c.entreprise}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">
+                                Fin le {c.dateFin} — {fmt(c.montantHT)} € HT
+                              </p>
+                            </div>
+                            <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                              J-{days}
+                            </span>
+                          </div>
+                        )
+                      })
+                    )}
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
         </div>
-        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-1 text-[11px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-emerald-500" />{stats.actifs} actifs — {fmt(stats.htActifs)} €</span>
-          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-amber-500" />{stats.suspendus} suspendus — {fmt(stats.htSuspendus)} €</span>
-          <span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-zinc-400" />{stats.termines} terminés — {fmt(stats.htTermines)} €</span>
+      </div>
+
+      {/* Revenue banner */}
+      <div className="mb-4 overflow-hidden rounded-xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/10 via-emerald-500/5 to-transparent p-3 sm:mb-6 sm:rounded-2xl sm:p-5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-500/15 sm:size-10 sm:rounded-xl">
+              <TrendingUp className="size-4 text-emerald-600 dark:text-emerald-400 sm:size-5" />
+            </div>
+            <div>
+              <p className="text-[9px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">
+                Revenu mensuel
+              </p>
+              <p className="font-display text-lg font-bold tabular-nums text-foreground sm:text-3xl">
+                {fmt(monthlyRevenue)} <span className="text-xs text-muted-foreground sm:text-lg">€ HT</span>
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-[9px] uppercase tracking-wide text-muted-foreground sm:text-[11px]">Actifs</p>
+            <p className="text-lg font-bold tabular-nums text-emerald-600 dark:text-emerald-400 sm:text-2xl">
+              {stats.actifs}
+            </p>
+          </div>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-0.5 border-t border-emerald-500/10 pt-2 text-[10px] text-muted-foreground sm:mt-3 sm:gap-x-4 sm:gap-y-1 sm:pt-2.5 sm:text-[11px]">
+          <span className="inline-flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-amber-500" />
+            Susp. <span className="tabular-nums font-medium text-foreground/80">{fmt(suspendedTotal)} €</span>
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <span className="size-1.5 rounded-full bg-zinc-400" />
+            Term. <span className="tabular-nums font-medium text-foreground/80">{fmt(terminatedTotal)} €</span>
+          </span>
         </div>
       </div>
 
       {/* Toolbar */}
-      <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mb-3 flex flex-col gap-2 sm:mb-5 sm:flex-row sm:gap-3 sm:items-center sm:justify-between">
         {/* Filters */}
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex items-center gap-1">
           {(['Tous', ...statusFilters] as const).map((s) => (
             <button
               key={s}
               onClick={() => setStatusFilter(s)}
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all',
+                'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-xs',
                 statusFilter === s
                   ? 'bg-primary/10 text-primary shadow-sm ring-1 ring-primary/20'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground'
@@ -269,25 +425,19 @@ export function ContractsPage() {
               )}
               {s}
               <span className={cn(
-                'tabular-nums text-[10px]',
+                'tabular-nums text-[9px] sm:text-[10px]',
                 statusFilter === s ? 'text-primary/70' : 'text-muted-foreground/60'
               )}>
                 {s === 'Tous' ? stats.total : s === 'Actif' ? stats.actifs : s === 'Suspendu' ? stats.suspendus : stats.termines}
               </span>
             </button>
           ))}
-
-          {statusFilter !== 'Tous' && (
-            <span className="ml-2 text-xs tabular-nums text-muted-foreground">
-              {fmt(filteredTotal)} € HT
-            </span>
-          )}
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
           {showSearch ? (
-            <div className="relative">
+            <div className="relative flex-1 sm:flex-initial">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground/50" />
               <input
                 autoFocus
@@ -295,13 +445,13 @@ export function ContractsPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 onBlur={() => { if (!search) setShowSearch(false) }}
-                className="h-9 w-48 rounded-xl border border-border/60 bg-card pl-9 pr-4 text-sm outline-none transition-all placeholder:text-muted-foreground/40 focus:border-primary/40 focus:ring-2 focus:ring-primary/10 sm:w-56"
+                className="h-8 w-full rounded-lg border border-border/60 bg-card pl-9 pr-3 text-xs outline-none transition-all placeholder:text-muted-foreground/40 focus:border-primary/40 focus:ring-2 focus:ring-primary/10 sm:h-9 sm:w-56 sm:rounded-xl sm:text-sm"
               />
             </div>
           ) : (
             <button
               onClick={() => setShowSearch(true)}
-              className="flex size-9 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:size-9 sm:rounded-xl"
             >
               <Search className="size-4" />
             </button>
@@ -309,7 +459,7 @@ export function ContractsPage() {
 
           <button
             onClick={() => setShowPrestations(true)}
-            className="flex size-9 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground sm:size-9 sm:rounded-xl"
             title="Gérer les prestations"
           >
             <Settings2 className="size-4" />
@@ -317,13 +467,23 @@ export function ContractsPage() {
 
           <button
             onClick={() => setShowAdd(true)}
-            className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 active:scale-95"
+            className="flex h-8 items-center gap-1 rounded-lg bg-primary px-3 text-[11px] font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 active:scale-95 sm:h-9 sm:gap-1.5 sm:rounded-xl sm:px-4 sm:text-xs"
           >
-            <Plus className="size-4" />
+            <Plus className="size-3.5 sm:size-4" />
             <span className="hidden sm:inline">Ajouter</span>
           </button>
         </div>
       </div>
+
+      {error && (
+        <div className="mb-4 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </div>
+      )}
+
+      {loading && (
+        <div className="mb-4 text-xs text-muted-foreground">Chargement…</div>
+      )}
 
       {/* Desktop table */}
       <div className="hidden overflow-hidden rounded-2xl border border-border/50 bg-card shadow-[var(--shadow-sm)] md:block">
@@ -332,21 +492,48 @@ export function ContractsPage() {
             <thead>
               <tr className="border-b border-border/50 bg-muted/30">
                 <SortTh label="Entreprise" col="entreprise" />
-                <SortTh label="Dirigeant" col="dirigeant" />
+                <SortTh label="HT/mois" col="montantHT" />
+                <SortTh label="Statut" col="statut" />
                 <SortTh label="Début" col="dateDebut" />
                 <SortTh label="Fin" col="dateFin" />
                 <SortTh label="Email" col="mail" className="hidden lg:table-cell" />
                 <SortTh label="Prestation" col="prestation" />
-                <SortTh label="HT/mois" col="montantHT" />
-                <SortTh label="Statut" col="statut" />
                 <th className="w-20 px-2 py-3" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
-              {filtered.map((c) => (
-                <tr key={c.id} className="transition-colors hover:bg-muted/20">
-                  <td className="px-4 py-3.5 font-medium text-foreground whitespace-nowrap">{c.entreprise}</td>
-                  <td className="px-4 py-3.5 text-muted-foreground whitespace-nowrap">{c.dirigeant}</td>
+              {filtered.map((c) => {
+                const expiring = isExpiringSoon(c)
+                return (
+                <tr
+                  key={c.id}
+                  className={cn(
+                    'transition-colors hover:bg-muted/20',
+                    expiring && 'bg-amber-500/5 hover:bg-amber-500/10'
+                  )}
+                >
+                  <td className="px-4 py-3.5 text-[15px] font-semibold text-foreground whitespace-nowrap">
+                    <div className="flex items-center gap-2">
+                      {expiring && (
+                        <span title={`J-${daysLeft(c.dateFin)}`}>
+                          <AlertTriangle className="size-3.5 shrink-0 text-amber-500" />
+                        </span>
+                      )}
+                      {c.entreprise}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3.5 tabular-nums text-[15px] font-bold text-foreground whitespace-nowrap">
+                    {fmt(c.montantHT)} €
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className={cn(
+                      'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap',
+                      statusColors[c.statut]
+                    )}>
+                      <span className={cn('size-1.5 rounded-full', statusDot[c.statut])} />
+                      {c.statut}
+                    </span>
+                  </td>
                   <td className="px-4 py-3.5">
                     <span className="inline-flex items-center gap-1.5 text-muted-foreground whitespace-nowrap">
                       <Calendar className="size-3 shrink-0 text-muted-foreground/40" />
@@ -354,8 +541,11 @@ export function ContractsPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3.5">
-                    <span className="inline-flex items-center gap-1.5 text-muted-foreground whitespace-nowrap">
-                      <Calendar className="size-3 shrink-0 text-muted-foreground/40" />
+                    <span className={cn(
+                      'inline-flex items-center gap-1.5 whitespace-nowrap',
+                      expiring ? 'font-semibold text-amber-600 dark:text-amber-400' : 'text-muted-foreground'
+                    )}>
+                      <Calendar className={cn('size-3 shrink-0', expiring ? 'text-amber-500' : 'text-muted-foreground/40')} />
                       {c.dateFin || '—'}
                     </span>
                   </td>
@@ -374,18 +564,6 @@ export function ContractsPage() {
                   </td>
                   <td className="px-4 py-3.5 text-muted-foreground whitespace-nowrap">
                     {c.prestation || '—'}
-                  </td>
-                  <td className="px-4 py-3.5 tabular-nums font-semibold text-foreground whitespace-nowrap">
-                    {fmt(c.montantHT)} €
-                  </td>
-                  <td className="px-4 py-3.5">
-                    <span className={cn(
-                      'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium whitespace-nowrap',
-                      statusColors[c.statut]
-                    )}>
-                      <span className={cn('size-1.5 rounded-full', statusDot[c.statut])} />
-                      {c.statut}
-                    </span>
                   </td>
                   <td className="px-2 py-3.5">
                     <div className="flex items-center gap-0.5">
@@ -406,10 +584,11 @@ export function ContractsPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="px-4 py-16 text-center text-muted-foreground/60">
+                  <td colSpan={8} className="px-4 py-16 text-center text-muted-foreground/60">
                     Aucun contrat trouvé.
                   </td>
                 </tr>
@@ -418,14 +597,13 @@ export function ContractsPage() {
             {filtered.length > 0 && (
               <tfoot>
                 <tr className="border-t border-border/50 bg-muted/20">
-                  <td colSpan={6} className="px-4 py-3 text-xs font-medium text-muted-foreground">
+                  <td className="px-4 py-3 text-xs font-medium text-muted-foreground whitespace-nowrap">
                     Total — {filtered.length} contrat{filtered.length > 1 ? 's' : ''}
                   </td>
                   <td className="px-4 py-3 tabular-nums text-sm font-bold text-foreground whitespace-nowrap">
                     {fmt(filteredTotal)} €
                   </td>
-                  <td />
-                  <td />
+                  <td colSpan={6} />
                 </tr>
               </tfoot>
             )}
@@ -433,80 +611,122 @@ export function ContractsPage() {
         </div>
       </div>
 
-      {/* Mobile cards */}
-      <div className="space-y-2.5 md:hidden">
-        <AnimatePresence initial={false}>
-          {filtered.map((c) => (
-            <motion.div
-              key={c.id}
-              initial={{ opacity: 0, y: -6 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <div className="rounded-2xl border border-border/50 bg-card p-4 shadow-[var(--shadow-xs)] transition-all active:scale-[0.99]">
-                {/* Top row */}
-                <div className="mb-2.5 flex items-start justify-between">
+      {/* Mobile list — dense, scannable */}
+      <div className="md:hidden">
+        {/* Column header */}
+        <div className="mb-1 flex items-center px-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60">
+          <span className="flex-1">Entreprise</span>
+          <span className="w-20 text-right">HT/mois</span>
+          <span className="w-20 text-right">Statut</span>
+        </div>
+
+        <div className="overflow-hidden rounded-xl border border-border/50 bg-card">
+          {filtered.map((c, i) => {
+            const expiring = isExpiringSoon(c)
+            return (
+              <div
+                key={c.id}
+                className={cn(
+                  'group',
+                  i > 0 && 'border-t border-border/30',
+                  expiring && 'bg-amber-500/5',
+                )}
+              >
+                {/* Main row — always visible */}
+                <button
+                  className="flex w-full items-center px-3 py-2.5 text-left active:bg-muted/30"
+                  onClick={() => setExpandedMobile(expandedMobile === c.id ? null : c.id)}
+                >
+                  {/* Entreprise */}
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[15px] font-semibold text-foreground">{c.entreprise}</p>
-                    {c.dirigeant && <p className="truncate text-xs text-muted-foreground">{c.dirigeant}</p>}
-                  </div>
-                  <span className={cn(
-                    'ml-2 inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
-                    statusColors[c.statut]
-                  )}>
-                    <span className={cn('size-1.5 rounded-full', statusDot[c.statut])} />
-                    {c.statut}
-                  </span>
-                </div>
-
-                {/* Info grid */}
-                <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-lg bg-muted/30 px-2.5 py-2">
-                    <p className="text-muted-foreground/60">Montant HT</p>
-                    <p className="mt-0.5 font-semibold tabular-nums text-foreground">{fmt(c.montantHT)} €</p>
-                  </div>
-                  <div className="rounded-lg bg-muted/30 px-2.5 py-2">
-                    <p className="text-muted-foreground/60">Prestation</p>
-                    <p className="mt-0.5 font-medium text-foreground">{c.prestation || '—'}</p>
-                  </div>
-                  {(c.dateDebut || c.dateFin) && (
-                    <div className="col-span-2 rounded-lg bg-muted/30 px-2.5 py-2">
-                      <p className="text-muted-foreground/60">Période</p>
-                      <p className="mt-0.5 font-medium text-foreground">
-                        {c.dateDebut || '?'} → {c.dateFin || '?'}
-                      </p>
+                    <div className="flex items-center gap-1.5">
+                      {expiring && <AlertTriangle className="size-3 shrink-0 text-amber-500" />}
+                      <span className="truncate text-[13px] font-semibold text-foreground">{c.entreprise}</span>
                     </div>
-                  )}
-                </div>
+                    {expiring && (
+                      <p className="mt-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                        J-{daysLeft(c.dateFin)}
+                      </p>
+                    )}
+                  </div>
+                  {/* Montant */}
+                  <span className="w-20 shrink-0 text-right text-[13px] font-bold tabular-nums text-foreground">
+                    {fmt(c.montantHT)}€
+                  </span>
+                  {/* Statut badge */}
+                  <span className="ml-2 w-20 shrink-0 text-right">
+                    <span className={cn(
+                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                      statusColors[c.statut]
+                    )}>
+                      <span className={cn('size-1.5 rounded-full', statusDot[c.statut])} />
+                      {c.statut}
+                    </span>
+                  </span>
+                </button>
 
-                {/* Actions */}
-                <div className="flex items-center justify-end gap-1">
-                  {c.mail && (
-                    <a
-                      href={`mailto:${c.mail}`}
-                      className="rounded-xl p-2 text-muted-foreground/50 transition-colors hover:text-primary"
+                {/* Expanded details — tap to reveal */}
+                <AnimatePresence>
+                  {expandedMobile === c.id && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.15 }}
+                      className="overflow-hidden"
                     >
-                      <Mail className="size-4" />
-                    </a>
+                      <div className="border-t border-border/20 bg-muted/10 px-3 py-2.5">
+                        <div className="grid grid-cols-3 gap-2 text-[11px]">
+                          <div>
+                            <p className="text-muted-foreground/50">Prestation</p>
+                            <p className="font-medium text-foreground">{c.prestation || '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground/50">Début</p>
+                            <p className="font-medium text-foreground">{c.dateDebut || '—'}</p>
+                          </div>
+                          <div>
+                            <p className="text-muted-foreground/50">Fin</p>
+                            <p className={cn(
+                              'font-medium',
+                              expiring ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'
+                            )}>{c.dateFin || '—'}</p>
+                          </div>
+                        </div>
+                        {/* Quick actions */}
+                        <div className="mt-2 flex items-center gap-1 border-t border-border/20 pt-2">
+                          {c.mail && (
+                            <a
+                              href={`mailto:${c.mail}`}
+                              className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] text-muted-foreground active:bg-muted"
+                            >
+                              <Mail className="size-3.5" />
+                              Email
+                            </a>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openEdit(c) }}
+                            className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] text-muted-foreground active:bg-muted"
+                          >
+                            <Pencil className="size-3.5" />
+                            Modifier
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDeleteId(c.id) }}
+                            className="ml-auto flex items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] text-red-500 active:bg-red-500/10"
+                          >
+                            <Trash2 className="size-3.5" />
+                            Suppr.
+                          </button>
+                        </div>
+                      </div>
+                    </motion.div>
                   )}
-                  <button
-                    onClick={() => openEdit(c)}
-                    className="rounded-xl p-2 text-muted-foreground/50 transition-colors hover:text-primary"
-                  >
-                    <Pencil className="size-4" />
-                  </button>
-                  <button
-                    onClick={() => setDeleteId(c.id)}
-                    className="rounded-xl p-2 text-muted-foreground/30 transition-colors hover:text-destructive"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                </div>
+                </AnimatePresence>
               </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
+            )
+          })}
+        </div>
 
         {filtered.length === 0 && (
           <div className="flex flex-col items-center gap-3 py-16">
@@ -518,10 +738,9 @@ export function ContractsPage() {
         )}
 
         {filtered.length > 0 && (
-          <div className="rounded-2xl border border-border/50 bg-muted/20 px-4 py-3 text-center">
-            <p className="text-xs text-muted-foreground">
-              {filtered.length} contrat{filtered.length > 1 ? 's' : ''} — <span className="font-semibold tabular-nums text-foreground">{fmt(filteredTotal)} € HT</span>
-            </p>
+          <div className="mt-2 flex items-center justify-between rounded-xl bg-muted/30 px-3 py-2.5 text-xs">
+            <span className="text-muted-foreground">{filtered.length} contrat{filtered.length > 1 ? 's' : ''}</span>
+            <span className="font-bold tabular-nums text-foreground">{fmt(filteredTotal)} € HT</span>
           </div>
         )}
       </div>
@@ -680,32 +899,6 @@ export function ContractsPage() {
 }
 
 /* ─── Sub-components ─── */
-
-function KpiCard({ icon: Icon, label, value, color, iconColor, valueColor, small }: {
-  icon: React.ComponentType<{ className?: string }>
-  label: string
-  value: string
-  color: string
-  iconColor: string
-  valueColor?: string
-  small?: boolean
-}) {
-  return (
-    <div className="rounded-2xl border border-border/50 bg-card p-4 shadow-[var(--shadow-xs)] transition-all hover:shadow-[var(--shadow-sm)]">
-      <div className={cn('mb-3 flex size-9 items-center justify-center rounded-xl bg-gradient-to-br', color)}>
-        <Icon className={cn('size-4', iconColor)} />
-      </div>
-      <p className={cn(
-        'tabular-nums font-semibold',
-        small ? 'text-lg' : 'text-2xl',
-        valueColor || 'text-foreground'
-      )}>
-        {value}
-      </p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{label}</p>
-    </div>
-  )
-}
 
 function ModalContent({ children, onClose, title, subtitle }: {
   children: React.ReactNode

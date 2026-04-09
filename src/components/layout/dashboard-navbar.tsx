@@ -1,14 +1,14 @@
-import { CheckSquare, CreditCard, FileText, Target, UserCircle, Users } from 'lucide-react'
+import { CreditCard, FileText, ListTodo, Target, UserCircle, Users } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { ThemeToggle } from '@/components/theme/theme-toggle'
 import { cn } from '@/lib/utils'
 
 const links = [
-  { to: '/', label: 'Tâches', icon: CheckSquare },
+  { to: '/', label: 'To-do', icon: ListTodo },
   { to: '/contrats', label: 'Contrats', icon: FileText },
   { to: '/pipe', label: 'Pipe', icon: Target },
-  { to: '/reseau', label: 'Réseau', icon: Users },
+  { to: '/reseau', label: 'Partenaires', icon: Users },
   { to: '/staff', label: 'Staff', icon: UserCircle },
   { to: '/depenses', label: 'Dépenses', icon: CreditCard },
 ] as const
