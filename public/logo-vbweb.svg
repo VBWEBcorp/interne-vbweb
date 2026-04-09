@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 50" fill="none">
+  <!-- VB in black -->
+  <text x="0" y="40" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="46" letter-spacing="-2" fill="#1a1a1a">VB</text>
+  <!-- WEB in blue -->
+  <text x="68" y="40" font-family="system-ui, -apple-system, sans-serif" font-weight="800" font-size="46" letter-spacing="-2" fill="#4A8FE7">WEB</text>
+</svg>
