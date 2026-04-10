@@ -7,16 +7,17 @@ import { defineConfig } from 'vite'
 import seoPrerender from 'vite-plugin-seo-prerender'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const isCI = Boolean(process.env.CI || process.env.NETLIFY)
 
 export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    seoPrerender({
+    !isCI && seoPrerender({
       routes: ['/', '/a-propos', '/services', '/contact', '/mentions-legales', '/politique-de-confidentialite'],
       removeStyle: false,
     }),
-  ],
+  ].filter(Boolean),
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
