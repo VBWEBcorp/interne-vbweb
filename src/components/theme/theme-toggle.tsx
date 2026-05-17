@@ -11,8 +11,7 @@ type ThemeToggleProps = {
 function readInitialDark() {
   const stored = localStorage.getItem('mymag-theme')
   if (stored === 'dark') return true
-  if (stored === 'light') return false
-  return window.matchMedia('(prefers-color-scheme: dark)').matches
+  return false
 }
 
 export function ThemeToggle({ className }: ThemeToggleProps) {

@@ -1,4 +1,4 @@
-import { CreditCard, FileText, ListTodo, Target, UserCircle, Users } from 'lucide-react'
+import { CreditCard, FileText, ListTodo, UserCircle, Users } from 'lucide-react'
 import { Link, useLocation } from 'react-router-dom'
 
 import { ThemeToggle } from '@/components/theme/theme-toggle'
@@ -7,7 +7,6 @@ import { cn } from '@/lib/utils'
 const links = [
   { to: '/', label: 'To-do', icon: ListTodo },
   { to: '/contrats', label: 'Contrats', icon: FileText },
-  { to: '/pipe', label: 'Pipe', icon: Target },
   { to: '/reseau', label: 'Partenaires', icon: Users },
   { to: '/staff', label: 'Staff', icon: UserCircle },
   { to: '/depenses', label: 'Dépenses', icon: CreditCard },
@@ -26,58 +25,37 @@ export function DashboardNavbar() {
       {/* Desktop top bar */}
       <header className="sticky top-0 z-50 hidden border-b border-border/50 bg-background/80 backdrop-blur-2xl md:block">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-6 lg:px-8">
-          <div className="flex items-center gap-8">
-            <Link
-              to="/"
-              className="inline-flex items-center gap-2.5 font-display text-base font-semibold tracking-tight text-foreground"
-            >
-              <span className="flex size-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70 text-[10px] font-bold text-primary-foreground shadow-sm">
-                VB
-              </span>
-              VBWEB
-            </Link>
-
-            <nav className="flex items-center gap-0.5" aria-label="Navigation principale">
-              {links.map((l) => {
-                const Icon = l.icon
-                const active = isActive(l.to)
-                return (
-                  <Link
-                    key={l.to}
-                    to={l.to}
-                    className={cn(
-                      'relative inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors',
-                      active
-                        ? 'text-foreground'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    <Icon className="size-3.5" />
-                    {l.label}
-                    {active && (
-                      <span className="absolute inset-x-1.5 -bottom-[calc(0.875rem+1px)] h-0.5 rounded-full bg-primary" />
-                    )}
-                  </Link>
-                )
-              })}
-            </nav>
-          </div>
+          <nav className="flex items-center gap-0.5" aria-label="Navigation principale">
+            {links.map((l) => {
+              const Icon = l.icon
+              const active = isActive(l.to)
+              return (
+                <Link
+                  key={l.to}
+                  to={l.to}
+                  className={cn(
+                    'relative inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium transition-colors',
+                    active
+                      ? 'text-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <Icon className="size-3.5" />
+                  {l.label}
+                  {active && (
+                    <span className="absolute inset-x-1.5 -bottom-[calc(0.875rem+1px)] h-0.5 rounded-full bg-primary" />
+                  )}
+                </Link>
+              )
+            })}
+          </nav>
 
           <ThemeToggle />
         </div>
       </header>
 
       {/* Mobile top bar */}
-      <header className="sticky top-0 z-50 flex h-12 items-center justify-between border-b border-border/50 bg-background/80 px-4 backdrop-blur-2xl md:hidden">
-        <Link
-          to="/"
-          className="inline-flex items-center gap-2 font-display text-sm font-semibold tracking-tight text-foreground"
-        >
-          <span className="flex size-6 items-center justify-center rounded-md bg-gradient-to-br from-primary to-primary/70 text-[9px] font-bold text-primary-foreground">
-            VB
-          </span>
-          VBWEB
-        </Link>
+      <header className="sticky top-0 z-50 flex h-12 items-center justify-end border-b border-border/50 bg-background/80 px-4 backdrop-blur-2xl md:hidden">
         <ThemeToggle />
       </header>
 

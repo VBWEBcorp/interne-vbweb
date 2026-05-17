@@ -7,31 +7,78 @@ import { cn } from '@/lib/utils'
 
 type Priority = Todo['priority']
 
+const STORAGE_KEY = 'vbweb-todos'
+
+function readCachedTodos(): Todo[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as Todo[]) : []
+  } catch {
+    return []
+  }
+}
+
+function writeCachedTodos(todos: Todo[]) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(todos))
+  } catch {
+    // localStorage may be unavailable (private mode, quota); ignore silently
+  }
+}
+
+function newLocalId() {
+  return (
+    (typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2)) + '-local'
+  )
+}
+
 export function TodosPage() {
-  const [todos, setTodos] = useState<Todo[]>([])
+  const [todos, setTodos] = useState<Todo[]>(() => readCachedTodos())
   const [input, setInput] = useState('')
   const [inputPriority, setInputPriority] = useState<Priority>('normal')
 
-  useEffect(() => { todosApi.list().then(setTodos).catch(console.error) }, [])
+  // Persist every change to localStorage
+  useEffect(() => { writeCachedTodos(todos) }, [todos])
 
-  async function add() {
+  // Best-effort background sync with the API (no spinner, no blocking)
+  useEffect(() => {
+    let cancelled = false
+    todosApi.list()
+      .then((remote) => { if (!cancelled && remote.length > 0) setTodos(remote) })
+      .catch(() => { /* offline / no backend — keep local cache */ })
+    return () => { cancelled = true }
+  }, [])
+
+  function add() {
     const text = input.trim()
     if (!text) return
-    const created = await todosApi.create({ text, done: false, priority: inputPriority })
-    setTodos((prev) => [created, ...prev])
+    const optimistic: Todo = { id: newLocalId(), text, done: false, priority: inputPriority }
+    setTodos((prev) => [optimistic, ...prev])
     setInput('')
+    todosApi.create({ text, done: false, priority: inputPriority })
+      .then((created) => setTodos((prev) => prev.map((t) => (t.id === optimistic.id ? created : t))))
+      .catch(() => { /* keep optimistic entry as the source of truth */ })
   }
 
-  async function toggle(id: string) {
+  function toggle(id: string) {
     const todo = todos.find((t) => t.id === id)
     if (!todo) return
-    const updated = await todosApi.update(id, { text: todo.text, done: !todo.done, priority: todo.priority })
-    setTodos((prev) => prev.map((t) => (t.id === id ? updated : t)))
+    const next: Todo = { ...todo, done: !todo.done }
+    setTodos((prev) => prev.map((t) => (t.id === id ? next : t)))
+    if (id.endsWith('-local')) return
+    todosApi.update(id, { text: next.text, done: next.done, priority: next.priority })
+      .then((updated) => setTodos((prev) => prev.map((t) => (t.id === id ? updated : t))))
+      .catch(() => { /* keep local state */ })
   }
 
-  async function remove(id: string) {
-    await todosApi.remove(id)
+  function remove(id: string) {
     setTodos((prev) => prev.filter((t) => t.id !== id))
+    if (id.endsWith('-local')) return
+    todosApi.remove(id).catch(() => { /* keep local state */ })
   }
 
   const normalTodos = useMemo(() => todos.filter((t) => t.priority === 'normal'), [todos])
